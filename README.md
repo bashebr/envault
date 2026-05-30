@@ -10,7 +10,7 @@ A secure, minimal CLI tool to sync encrypted `.env` files to private GitHub Gist
 ## Quickstart
 
 ```bash
-pip install envault
+uv tool install envault
 
 # Option 1: Env Var
 export GITHUB_TOKEN=your_token_here
