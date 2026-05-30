@@ -1,6 +1,6 @@
 import pytest
 
-from envault import crypto
+from envault_gist import crypto
 
 
 def test_encrypt_decrypt_roundtrip():

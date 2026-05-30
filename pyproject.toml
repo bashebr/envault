@@ -1,5 +1,5 @@
 [project]
-name = "envault"
+name = "envault-gist"
 version = "0.1.0"
 description = "Securely sync encrypted .env files to GitHub Gists."
 readme = "README.md"
@@ -14,10 +14,11 @@ dependencies = [
   "rich>=13.0.0",
   "tenacity>=8.2.0",
   "typer>=0.9.0",
+  "urllib3>=2.2.3",
 ]
 
 [project.scripts]
-envault = "envault.cli:main"
+envault-gist = "envault_gist.cli:main"
 
 [dependency-groups]
 dev = [

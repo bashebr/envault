@@ -2,11 +2,11 @@
 
 ## Project Overview
 
-Envault is a small Python CLI package for encrypting a local `.env` file and storing the encrypted payload in a private GitHub Gist. The current implementation is intentionally compact: one CLI module coordinates user interaction, one module handles cryptography, and one module handles GitHub Gist access.
+envault-gist is a small Python CLI package for encrypting a local `.env` file and storing the encrypted payload in a private GitHub Gist. The current implementation is intentionally compact: one CLI module coordinates user interaction, one module handles cryptography, and one module handles GitHub Gist access.
 
 The repository language is English in code comments, README text, and supporting docs. Keep new comments and documentation in English.
 
-The current published metadata identifies version `0.1.0` in both `pyproject.toml` and `envault/__init__.py`.
+The PyPI distribution name is `envault-gist` (not `envault`, which is taken by an unrelated package). The current published metadata identifies version `0.1.0` in both `pyproject.toml` and `envault_gist/__init__.py`.
 
 ## Repository Layout
 
@@ -14,14 +14,15 @@ The current published metadata identifies version `0.1.0` in both `pyproject.tom
 - `uv.lock`: checked-in dependency lockfile.
 - `README.md`: user-facing usage, security model, and authoritative product description.
 - `.github/workflows/ci.yml`: pytest (with coverage) and Ruff on push/PR to `main`.
-- `envault/cli.py`: Typer application and command implementations.
-- `envault/crypto.py`: key derivation and encryption/decryption helpers.
-- `envault/gist.py`: GitHub authentication and Gist CRUD operations.
+- `envault_gist/cli.py`: Typer application and command implementations.
+- `envault_gist/crypto.py`: key derivation and encryption/decryption helpers.
+- `envault_gist/gist.py`: GitHub authentication and Gist CRUD operations.
+- `envault_gist/config.py`: project-local `.envault.json` storage for the saved Gist ID.
 - `tests/test_cli.py`: command-level tests using Typer's `CliRunner` and mocks.
 - `tests/test_crypto.py`: crypto round-trip and invalid-passphrase tests.
 - `.gitignore`: ignores `.env`, `.envault_token`, temporary files, virtualenvs, caches, and build artifacts.
 
-There are no subpackages beyond `envault/`, no Docker files, no Makefile, and no `mypy` or pre-commit configuration. Ruff is configured in `pyproject.toml` under `[tool.ruff]`.
+There are no subpackages beyond `envault_gist/`, no Docker files, no Makefile, and no `mypy` or pre-commit configuration. Ruff is configured in `pyproject.toml` under `[tool.ruff]`.
 
 ## Technology Stack
 
@@ -42,7 +43,7 @@ Dependency note: `PyNaCl==1.5.0` is declared in `pyproject.toml`, but the curren
 The repository does not define wrapper scripts for development tasks. Use the package metadata directly.
 
 - Preferred environment reproduction: use the checked-in `uv.lock` if you are working with `uv`.
-- Standard install path: install the package from the project root so the `envault` console script is created from `project.scripts`.
+- Standard install path: install the package from the project root so the `envault-gist` console script is created from `project.scripts`.
 - Standard build path: use a PEP 517 frontend against the Hatchling backend declared in `pyproject.toml`.
 - Dev dependency group (`dependency-groups.dev`): `pytest`, `pytest-cov`, and `ruff`.
 
@@ -53,7 +54,7 @@ Concrete commands that match the current project structure:
 uv sync
 
 # run the CLI after dependencies are installed
-uv run envault --help
+uv run envault-gist --help
 
 # run tests (CI also runs coverage)
 uv run pytest
@@ -72,19 +73,21 @@ If you are using `uv`, sync from `uv.lock` first and run the same tasks inside t
 
 ### CLI Layer
 
-`envault/cli.py` defines a single `typer.Typer` application with these commands:
+`envault_gist/cli.py` defines a single `typer.Typer` application with these commands:
 
-- `init`: checks for `GITHUB_TOKEN` or `.envault_token`, optionally prompts for a token, and ensures a local `.env` file exists.
-- `push`: validates the local `.env`, prompts for a passphrase twice, encrypts the file bytes, serializes the payload to JSON, and creates a private Gist.
-- `pull --gist-id <id>`: prompts for a passphrase, fetches the encrypted JSON payload, decrypts it, writes to `.env.tmp`, and atomically replaces `.env`.
-- `rotate --gist-id <id>`: fetches and decrypts an existing payload with the current passphrase, then re-encrypts it with a new passphrase and updates the Gist.
-- `diff --gist-id <id>`: decrypts the remote payload and compares it against the local `.env` line-by-line, printing only key names with redacted values.
+- `init`: checks for `GITHUB_TOKEN` or `.envault_token`, optionally prompts for a token, ensures a local `.env` file exists, and reports any saved Gist ID.
+- `push [--gist-id <id>] [--new]`: validates the local `.env`, reads a passphrase (with confirmation), encrypts the file bytes, serializes the payload to JSON, and either creates a new private Gist or updates an existing one. Resolution order for the target Gist: `--gist-id` flag, then saved `.envault.json`; `--new` forces creation. The resulting Gist ID is persisted to `.envault.json`.
+- `pull [--gist-id <id>]`: prompts for a passphrase, fetches the encrypted JSON payload, decrypts it, writes to `.env.tmp`, atomically replaces `.env`, and saves the Gist ID.
+- `rotate [--gist-id <id>]`: fetches and decrypts an existing payload with the current passphrase, then re-encrypts it with a new passphrase and updates the Gist.
+- `diff [--gist-id <id>]`: decrypts the remote payload and compares it against the local `.env` line-by-line, printing only key names with redacted values.
+
+When `--gist-id` is omitted, `pull`/`diff`/`rotate` fall back to the ID saved in `.envault.json` and error out if none is available. The `ENVAULT_PASSPHRASE` environment variable, when set, supplies the passphrase non-interactively and skips the push confirmation prompt.
 
 `validate_env_file()` is only used by `push`. It currently enforces a 1 MB maximum file size and rejects non-UTF-8 input.
 
 ### Crypto Layer
 
-`envault/crypto.py` is responsible for all encryption and decryption logic.
+`envault_gist/crypto.py` is responsible for all encryption and decryption logic.
 
 - `_derive_key()` derives a 32-byte key with Argon2id and base64-url-encodes it for Fernet.
 - `encrypt()` generates a random 16-byte salt, derives a key from the passphrase, encrypts the plaintext with Fernet, and returns a JSON-serializable payload with `salt`, `ciphertext`, and `kdf`.
@@ -102,16 +105,14 @@ The implementation makes a best-effort attempt to reduce secret lifetime with `d
 
 ### GitHub/Gist Layer
 
-`envault/gist.py` owns authentication and remote storage details.
+`envault_gist/gist.py` owns authentication and remote storage details.
 
 - Authentication order: `GITHUB_TOKEN` environment variable first, then project-local `.envault_token`.
-- Gist filename is always `envault.json`.
-- Gist description is always `envault secrets`.
+- Gist filename is always `envault.json` (legacy name kept for backward compatibility).
+- Gist description is `envault-gist secrets`.
 - `create_gist()`, `update_gist()`, and `get_gist_content()` all use Tenacity retry decorators with exponential backoff.
 
-Important behavior detail: this module exits the process with `sys.exit(1)` on missing auth and some GitHub API failures instead of raising domain-specific exceptions.
-
-There is also a `sensitive_request()` helper with a retry decorator that is currently unused.
+Token loading (`_load_github_token`/`_parse_github_token_value`) accepts a raw PAT or a `KEY=VALUE` line. Retries use a custom `retry_if_exception` predicate so only transient errors (5xx, 429, connection/timeout) are retried; `create_gist` and `update_gist` raise `RuntimeError` with a friendly message (via `_format_github_error`) on `GithubException`. `get_github_client` and `get_gist_content` still `sys.exit(1)` on missing auth / missing file.
 
 ## Code Organization and Development Conventions
 
@@ -125,7 +126,7 @@ Observed conventions from the current code:
 - Use Rich console output for user-visible status and errors.
 - Keep docstrings brief and practical.
 - Use broad `except Exception` blocks in the CLI layer to convert failures into user-facing messages and `typer.Exit(code=1)`.
-- Keep GitHub-specific concerns inside `envault/gist.py` rather than mixing them into the crypto module.
+- Keep GitHub-specific concerns inside `envault_gist/gist.py` rather than mixing them into the crypto module.
 
 What is not currently enforced in-repo:
 
@@ -142,7 +143,10 @@ Current test coverage is limited to:
 
 - Crypto round-trip behavior
 - Crypto failure on wrong passphrase
-- CLI `push`, `pull`, `diff`, and `init` happy-path behavior
+- CLI `push` (create, update via saved ID, `--gist-id`, `--new`, `ENVAULT_PASSPHRASE`), `pull`, `diff`, and `init`
+- `pull` requiring a Gist ID when none is saved
+- `config` get/set/invalid-JSON handling
+- GitHub token parsing (`_parse_github_token_value`)
 
 Testing style in the current repo:
 
@@ -154,7 +158,7 @@ Testing style in the current repo:
 Run tests with:
 
 ```bash
-python3 -m pytest
+uv run pytest
 ```
 
 Be aware of the current gaps before relying on the suite:
@@ -163,6 +167,8 @@ Be aware of the current gaps before relying on the suite:
 - No integration tests against a real GitHub Gist
 - No property-based tests
 - No regression tests around malformed payloads beyond invalid passphrase handling
+
+Note: `.envault.json` is project-local metadata (the saved Gist ID). It is not secret (the Gist is private and requires auth), so it is intentionally not gitignored and may be committed to let teammates `pull` with only a passphrase.
 
 ## Security Considerations
 
@@ -178,12 +184,12 @@ This project handles secrets directly. Preserve the current threat model when ed
 
 ## Deployment and Release Status
 
-There is no runtime deployment (no server or container). The package is published to PyPI (`uv tool install envault` / see README badges).
+There is no runtime deployment (no server or container). The package is intended for PyPI as `envault-gist` (`uv tool install envault-gist`).
 
 What exists today:
 
-- Python package metadata and PyPI distribution at v0.1.0
-- A console-script entry point
+- Python package metadata at v0.1.0
+- A console-script entry point (`envault-gist`)
 - An MIT license
 - A lockfile for reproducible dependencies
 - GitHub Actions CI: multi-version pytest with coverage, plus Ruff check and format check

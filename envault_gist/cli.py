@@ -1,14 +1,20 @@
 import json
 import os
 from pathlib import Path
+from typing import Optional
 
 import typer
 from rich.console import Console
 
-from envault import crypto, gist
+from envault_gist import config, crypto, gist
 
-app = typer.Typer(help="Securely sync encrypted .env files to GitHub Gists.")
+app = typer.Typer(
+    help="Securely sync encrypted .env files to GitHub Gists.",
+    no_args_is_help=True,
+)
 console = Console()
+
+PASSPHRASE_ENV = "ENVAULT_PASSPHRASE"
 
 
 def validate_env_file(path: Path):
@@ -24,10 +30,41 @@ def validate_env_file(path: Path):
         raise typer.Exit(code=1)
 
 
+def _get_passphrase(prompt_text: str, confirm: bool = False) -> str:
+    """Read a passphrase from ENVAULT_PASSPHRASE if set, else prompt.
+
+    Setting the env var enables non-interactive use (CI, scripts) and skips
+    confirmation since there is no risk of a typo.
+    """
+    env_passphrase = os.environ.get(PASSPHRASE_ENV)
+    if env_passphrase:
+        return env_passphrase
+
+    passphrase = typer.prompt(prompt_text, hide_input=True)
+    if confirm:
+        confirm_passphrase = typer.prompt("Confirm passphrase", hide_input=True)
+        if passphrase != confirm_passphrase:
+            console.print("[red]Error: Passphrases do not match.[/red]")
+            raise typer.Exit(code=1)
+    return passphrase
+
+
+def _resolve_gist_id(gist_id: Optional[str]) -> str:
+    """Resolve a Gist ID from the flag, then the saved config."""
+    resolved = gist_id or config.get_gist_id()
+    if not resolved:
+        console.print("[red]Error: No Gist ID provided and none saved in .envault.json.[/red]")
+        console.print(
+            "[yellow]Hint: run `envault-gist push` first, or pass --gist-id <id>.[/yellow]"
+        )
+        raise typer.Exit(code=1)
+    return resolved
+
+
 @app.command()
 def init():
-    """Initialize envault configuration."""
-    console.print("[bold]Welcome to Envault Initialization[/bold]")
+    """Initialize envault-gist configuration."""
+    console.print("[bold]Welcome to envault-gist Initialization[/bold]")
 
     # Check/Setup GITHUB_TOKEN
     token = os.environ.get("GITHUB_TOKEN")
@@ -50,12 +87,29 @@ def init():
     else:
         console.print("[green]✓ .env file found.[/green]")
 
-    console.print("[bold green]Initialization complete! Run `envault push` to sync.[/bold green]")
+    saved_id = config.get_gist_id()
+    if saved_id:
+        console.print(f"[green]✓ Saved Gist ID:[/green] [bold]{saved_id}[/bold]")
+
+    console.print(
+        "[bold green]Initialization complete! Run `envault-gist push` to sync.[/bold green]"
+    )
 
 
 @app.command()
-def push():
-    """Encrypt local .env and push to a private Gist."""
+def push(
+    gist_id: Optional[str] = typer.Option(
+        None,
+        "--gist-id",
+        help="Update this Gist instead of creating a new one (defaults to saved ID).",
+    ),
+    new: bool = typer.Option(
+        False,
+        "--new",
+        help="Force creating a new Gist even if one is already saved.",
+    ),
+):
+    """Encrypt local .env and push to a private Gist (creates or updates)."""
     env_path = Path(".env")
     if not env_path.exists():
         console.print("[red]Error: .env file not found in current directory.[/red]")
@@ -63,34 +117,43 @@ def push():
 
     validate_env_file(env_path)
 
-    passphrase = typer.prompt("Enter passphrase", hide_input=True)
-    confirm_passphrase = typer.prompt("Confirm passphrase", hide_input=True)
+    target_id = None if new else (gist_id or config.get_gist_id())
 
-    if passphrase != confirm_passphrase:
-        console.print("[red]Error: Passphrases do not match.[/red]")
-        raise typer.Exit(code=1)
+    passphrase = _get_passphrase("Enter passphrase", confirm=True)
 
     try:
         data = env_path.read_bytes()
         encrypted_payload = crypto.encrypt(data, passphrase)
         payload_json = json.dumps(encrypted_payload)
 
-        gist_id = gist.create_gist(payload_json)
-        console.print(
-            f"[green]Success! Encrypted .env pushed to Gist ID:[/green] [bold]{gist_id}[/bold]"
-        )
+        if target_id:
+            gist.update_gist(target_id, payload_json)
+            config.set_gist_id(target_id)
+            console.print(f"[green]Success! Updated Gist:[/green] [bold]{target_id}[/bold]")
+            console.print(f"[dim]{gist.gist_url(target_id)}[/dim]")
+        else:
+            new_id = gist.create_gist(payload_json)
+            config.set_gist_id(new_id)
+            console.print(f"[green]Success! Created Gist:[/green] [bold]{new_id}[/bold]")
+            console.print(f"[dim]{gist.gist_url(new_id)}[/dim]")
+            console.print(f"[dim]Saved Gist ID to {config.CONFIG_FILENAME}[/dim]")
     except Exception as e:
         console.print(f"[red]Error:[/red] {e}")
         raise typer.Exit(code=1)
 
 
 @app.command()
-def pull(gist_id: str = typer.Option(..., "--gist-id", help="The ID of the Gist to pull from.")):
+def pull(
+    gist_id: Optional[str] = typer.Option(
+        None, "--gist-id", help="The ID of the Gist to pull from (defaults to saved ID)."
+    ),
+):
     """Fetch and decrypt .env from a Gist."""
-    passphrase = typer.prompt("Enter passphrase", hide_input=True)
+    resolved_id = _resolve_gist_id(gist_id)
+    passphrase = _get_passphrase("Enter passphrase")
 
     try:
-        content = gist.get_gist_content(gist_id)
+        content = gist.get_gist_content(resolved_id)
         payload = json.loads(content)
 
         decrypted_data = crypto.decrypt(payload, passphrase)
@@ -102,6 +165,7 @@ def pull(gist_id: str = typer.Option(..., "--gist-id", help="The ID of the Gist 
         tmp_path.write_bytes(decrypted_data)
         tmp_path.replace(env_path)
 
+        config.set_gist_id(resolved_id)
         console.print("[green]Success! .env file restored.[/green]")
     except Exception as e:
         console.print(f"[red]Error:[/red] {e}")
@@ -111,13 +175,18 @@ def pull(gist_id: str = typer.Option(..., "--gist-id", help="The ID of the Gist 
 
 
 @app.command()
-def rotate(gist_id: str = typer.Option(..., "--gist-id", help="The ID of the Gist to rotate.")):
+def rotate(
+    gist_id: Optional[str] = typer.Option(
+        None, "--gist-id", help="The ID of the Gist to rotate (defaults to saved ID)."
+    ),
+):
     """Decrypt remote Gist with old passphrase and re-encrypt with a new one."""
-    current_passphrase = typer.prompt("Enter CURRENT passphrase", hide_input=True)
+    resolved_id = _resolve_gist_id(gist_id)
+    current_passphrase = _get_passphrase("Enter CURRENT passphrase")
 
     try:
         # 1. Fetch
-        content = gist.get_gist_content(gist_id)
+        content = gist.get_gist_content(resolved_id)
         payload = json.loads(content)
 
         # 2. Decrypt
@@ -137,8 +206,8 @@ def rotate(gist_id: str = typer.Option(..., "--gist-id", help="The ID of the Gis
         new_payload_json = json.dumps(new_encrypted_payload)
 
         # 5. Update
-        gist.update_gist(gist_id, new_payload_json)
-        console.print(f"[green]Success! Gist {gist_id} rotated to new passphrase.[/green]")
+        gist.update_gist(resolved_id, new_payload_json)
+        console.print(f"[green]Success! Gist {resolved_id} rotated to new passphrase.[/green]")
 
     except Exception as e:
         console.print(f"[red]Error:[/red] {e}")
@@ -146,13 +215,18 @@ def rotate(gist_id: str = typer.Option(..., "--gist-id", help="The ID of the Gis
 
 
 @app.command()
-def diff(gist_id: str = typer.Option(..., "--gist-id", help="The ID of the Gist to compare with.")):
+def diff(
+    gist_id: Optional[str] = typer.Option(
+        None, "--gist-id", help="The ID of the Gist to compare with (defaults to saved ID)."
+    ),
+):
     """Compare local .env with remote encrypted Gist."""
-    passphrase = typer.prompt("Enter passphrase for REMOTE", hide_input=True)
+    resolved_id = _resolve_gist_id(gist_id)
+    passphrase = _get_passphrase("Enter passphrase for REMOTE")
 
     try:
         # Remote
-        content = gist.get_gist_content(gist_id)
+        content = gist.get_gist_content(resolved_id)
         payload = json.loads(content)
         remote_data = crypto.decrypt(payload, passphrase)
         remote_lines = set(remote_data.decode("utf-8").splitlines())

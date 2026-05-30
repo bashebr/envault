@@ -26,7 +26,7 @@ jobs:
         run: uv sync
 
       - name: Run tests
-        run: uv run pytest -v --cov=envault --cov-report=term-missing
+        run: uv run pytest -v --cov=envault_gist --cov-report=term-missing
 
   lint:
     runs-on: ubuntu-latest

@@ -4,12 +4,13 @@ from unittest.mock import patch
 
 from typer.testing import CliRunner
 
-from envault.cli import app
+from envault_gist import config
+from envault_gist.cli import app
 
 runner = CliRunner()
 
 
-@patch("envault.gist.create_gist")
+@patch("envault_gist.gist.create_gist")
 def test_push_command(mock_create_gist, tmp_path):
     mock_create_gist.return_value = "1234567890"
 
@@ -33,11 +34,81 @@ def test_push_command(mock_create_gist, tmp_path):
         assert "ciphertext" in payload
         assert "kdf" in payload
 
+        # The new Gist ID is persisted for later commands
+        assert config.get_gist_id() == "1234567890"
 
-@patch("envault.gist.get_gist_content")
+
+@patch("envault_gist.gist.update_gist")
+@patch("envault_gist.gist.create_gist")
+def test_push_uses_saved_gist_id(mock_create_gist, mock_update_gist):
+    with runner.isolated_filesystem():
+        Path(".env").write_text("FOO=BAR")
+        config.set_gist_id("saved123")
+
+        result = runner.invoke(app, ["push"], input="mypassword\nmypassword\n")
+
+        assert result.exit_code == 0
+        assert "Updated Gist" in result.stdout
+        assert "saved123" in result.stdout
+        mock_update_gist.assert_called_once()
+        mock_create_gist.assert_not_called()
+
+
+@patch("envault_gist.gist.update_gist")
+def test_push_gist_id_flag(mock_update_gist):
+    with runner.isolated_filesystem():
+        Path(".env").write_text("FOO=BAR")
+
+        result = runner.invoke(
+            app, ["push", "--gist-id", "flag456"], input="mypassword\nmypassword\n"
+        )
+
+        assert result.exit_code == 0
+        assert "flag456" in result.stdout
+        mock_update_gist.assert_called_once()
+        assert config.get_gist_id() == "flag456"
+
+
+@patch("envault_gist.gist.create_gist")
+def test_push_new_forces_create(mock_create_gist):
+    mock_create_gist.return_value = "fresh789"
+    with runner.isolated_filesystem():
+        Path(".env").write_text("FOO=BAR")
+        config.set_gist_id("saved123")
+
+        result = runner.invoke(app, ["push", "--new"], input="mypassword\nmypassword\n")
+
+        assert result.exit_code == 0
+        assert "fresh789" in result.stdout
+        mock_create_gist.assert_called_once()
+        assert config.get_gist_id() == "fresh789"
+
+
+@patch("envault_gist.gist.create_gist")
+def test_push_passphrase_from_env(mock_create_gist, monkeypatch):
+    mock_create_gist.return_value = "envpass1"
+    monkeypatch.setenv("ENVAULT_PASSPHRASE", "from-env")
+    with runner.isolated_filesystem():
+        Path(".env").write_text("FOO=BAR")
+
+        # No interactive input provided; passphrase comes from the env var
+        result = runner.invoke(app, ["push"])
+
+        assert result.exit_code == 0
+        mock_create_gist.assert_called_once()
+
+
+def test_pull_requires_gist_id():
+    with runner.isolated_filesystem():
+        result = runner.invoke(app, ["pull"], input="mypassword\n")
+        assert result.exit_code == 1
+        assert "No Gist ID" in result.stdout
+
+
+@patch("envault_gist.gist.get_gist_content")
 def test_pull_command(mock_get_content):
     # Mock return from Gist
-    from envault import crypto
+    from envault_gist import crypto
 
     payload = crypto.encrypt(b"FOO=BAR", "mypassword")
     mock_get_content.return_value = json.dumps(payload)
@@ -52,9 +123,9 @@ def test_pull_command(mock_get_content):
         assert Path(".env").read_text() == "FOO=BAR"
 
 
-@patch("envault.gist.get_gist_content")
+@patch("envault_gist.gist.get_gist_content")
 def test_diff_command(mock_get_content):
-    from envault import crypto
+    from envault_gist import crypto
 
     payload = crypto.encrypt(b"FOO=REMOTE_VAL\nBAR=BAZ", "mypassword")
     mock_get_content.return_value = json.dumps(payload)
