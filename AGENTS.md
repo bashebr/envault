@@ -12,9 +12,8 @@ The current published metadata identifies version `0.1.0` in both `pyproject.tom
 
 - `pyproject.toml`: package metadata, dependencies, script entry point, and Hatchling build backend.
 - `uv.lock`: checked-in dependency lockfile.
-- `README.md`: user-facing usage and security model summary.
-- `PRODUCTION_ROADMAP.md`: future work and hardening ideas. Treat this as roadmap, not as implemented behavior.
-- `product-walkthrough.md`: product positioning and workflow description. Also descriptive, not authoritative for implementation details.
+- `README.md`: user-facing usage, security model, and authoritative product description.
+- `.github/workflows/ci.yml`: pytest (with coverage) and Ruff on push/PR to `main`.
 - `envault/cli.py`: Typer application and command implementations.
 - `envault/crypto.py`: key derivation and encryption/decryption helpers.
 - `envault/gist.py`: GitHub authentication and Gist CRUD operations.
@@ -22,7 +21,7 @@ The current published metadata identifies version `0.1.0` in both `pyproject.tom
 - `tests/test_crypto.py`: crypto round-trip and invalid-passphrase tests.
 - `.gitignore`: ignores `.env`, `.envault_token`, temporary files, virtualenvs, caches, and build artifacts.
 
-There are no subpackages beyond `envault/`, no Docker files, no GitHub Actions workflow files, no Makefile, and no dedicated lint/type-check config files in the current repository.
+There are no subpackages beyond `envault/`, no Docker files, no Makefile, and no `mypy` or pre-commit configuration. Ruff is configured in `pyproject.toml` under `[tool.ruff]`.
 
 ## Technology Stack
 
@@ -45,7 +44,7 @@ The repository does not define wrapper scripts for development tasks. Use the pa
 - Preferred environment reproduction: use the checked-in `uv.lock` if you are working with `uv`.
 - Standard install path: install the package from the project root so the `envault` console script is created from `project.scripts`.
 - Standard build path: use a PEP 517 frontend against the Hatchling backend declared in `pyproject.toml`.
-- Standard test runner: `pytest` is the only declared dev dependency.
+- Dev dependency group (`dependency-groups.dev`): `pytest`, `pytest-cov`, and `ruff`.
 
 Concrete commands that match the current project structure:
 
@@ -56,8 +55,12 @@ uv sync
 # run the CLI after dependencies are installed
 uv run envault --help
 
-# run tests after pytest is installed
+# run tests (CI also runs coverage)
 uv run pytest
+
+# lint (matches CI)
+uv run ruff check .
+uv run ruff format --check .
 
 # build distributable artifacts with a PEP 517 frontend
 uv run python -m build
@@ -126,13 +129,10 @@ Observed conventions from the current code:
 
 What is not currently enforced in-repo:
 
-- No `ruff` config
-- No `black` config
-- No `mypy` config
-- No pre-commit config
-- No CI workflow
-
-The roadmap mentions those tools, but they are not part of the current repository contract.
+- No `mypy` config or type-check job in CI
+- No `black` config (formatting is Ruff)
+- No pre-commit hooks
+- No Dependabot or automated security scanning config in-repo
 
 ## Testing Instructions
 
@@ -178,21 +178,21 @@ This project handles secrets directly. Preserve the current threat model when ed
 
 ## Deployment and Release Status
 
-There is no deployment pipeline in this repository.
+There is no runtime deployment (no server or container). The package is published to PyPI (`uv tool install envault` / see README badges).
 
 What exists today:
 
-- Python package metadata
+- Python package metadata and PyPI distribution at v0.1.0
 - A console-script entry point
 - An MIT license
 - A lockfile for reproducible dependencies
+- GitHub Actions CI: multi-version pytest with coverage, plus Ruff check and format check
 
 What does not exist today:
 
-- Release automation
-- Artifact signing
-- Homebrew packaging
-- CI/CD workflows
+- Automated release or publish workflows in this repo
+- Signed release artifacts
+- Homebrew tap
 - Container images
 
-If you need to add release or deployment machinery, treat it as new work. Do not describe it as existing project behavior.
+If you add release automation or distribution channels, update this section and the README.
