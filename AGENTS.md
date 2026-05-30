@@ -51,16 +51,16 @@ Concrete commands that match the current project structure:
 
 ```bash
 # install the package in editable mode
-python3 -m pip install -e .
+uv sync
 
 # run the CLI after dependencies are installed
-envault --help
+uv run envault --help
 
 # run tests after pytest is installed
-python3 -m pytest
+uv run pytest
 
 # build distributable artifacts with a PEP 517 frontend
-python3 -m build
+uv run python -m build
 ```
 
 If you are using `uv`, sync from `uv.lock` first and run the same tasks inside that environment.
