@@ -35,7 +35,7 @@ There are no subpackages beyond `envault_gist/`, no Docker files, no Makefile, a
 
 ## Technology Stack
 
-- Python `>=3.8`
+- Python `>=3.14`
 - Packaging: PEP 621 metadata in `pyproject.toml`
 - Build backend: `hatchling`
 - CLI framework: `typer`
