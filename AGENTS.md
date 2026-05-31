@@ -1,5 +1,11 @@
 # AGENTS.md
 
+> **Inherits from `AGENTS.base.md`** (parent standards). The base file holds the
+> project-agnostic engineering rules (core principles, code conventions, SDLC,
+> testing, version control, security, documentation). This file adds the
+> envault-specific details and states any explicit overrides. On conflict, this
+> file wins; anything not restated here defers to the parent.
+
 ## Project Overview
 
 envault-gist is a small Python CLI package for encrypting a local `.env` file and storing the encrypted payload in a private GitHub Gist. The current implementation is intentionally compact: one CLI module coordinates user interaction, one module handles cryptography, and one module handles GitHub Gist access.
@@ -14,12 +20,15 @@ The PyPI distribution name is `envault-gist` (not `envault`, which is taken by a
 - `uv.lock`: checked-in dependency lockfile.
 - `README.md`: user-facing usage, security model, and authoritative product description.
 - `.github/workflows/ci.yml`: pytest (with coverage) and Ruff on push/PR to `main`.
+- `AGENTS.base.md`: parent/base engineering standards this file inherits from.
 - `envault_gist/cli.py`: Typer application and command implementations.
 - `envault_gist/crypto.py`: key derivation and encryption/decryption helpers.
 - `envault_gist/gist.py`: GitHub authentication and Gist CRUD operations.
 - `envault_gist/config.py`: project-local `.envault.json` storage for the saved Gist ID.
 - `tests/test_cli.py`: command-level tests using Typer's `CliRunner` and mocks.
 - `tests/test_crypto.py`: crypto round-trip and invalid-passphrase tests.
+- `tests/test_config.py`: `.envault.json` config get/set and invalid-JSON handling.
+- `tests/test_gist.py`: GitHub token parsing and Gist-layer tests.
 - `.gitignore`: ignores `.env`, `.envault_token`, temporary files, virtualenvs, caches, and build artifacts.
 
 There are no subpackages beyond `envault_gist/`, no Docker files, no Makefile, and no `mypy` or pre-commit configuration. Ruff is configured in `pyproject.toml` under `[tool.ruff]`.
@@ -35,8 +44,6 @@ There are no subpackages beyond `envault_gist/`, no Docker files, no Makefile, a
 - Retry/backoff: `tenacity`
 - Cryptography: `cryptography.fernet.Fernet`
 - Key derivation: `argon2-cffi` low-level Argon2id API
-
-Dependency note: `PyNaCl==1.5.0` is declared in `pyproject.toml`, but the current code does not import or use it.
 
 ## Build, Install, and Run
 
@@ -116,17 +123,22 @@ Token loading (`_load_github_token`/`_parse_github_token_value`) accepts a raw P
 
 ## Code Organization and Development Conventions
 
+The generic engineering standards (core principles, code conventions, SDLC, testing, version control, security, documentation) live in `AGENTS.base.md`. This section records only envault-specific conventions, explicit overrides, and how the parent rules are concretely enforced here.
+
 The codebase is flat and module-oriented. There is no service layer, dependency injection, or internal plugin system.
 
-Observed conventions from the current code:
+Project-specific conventions:
 
-- Keep modules small and purpose-specific.
 - Use `pathlib.Path` for filesystem work.
 - Use Typer prompts for secrets and required CLI input.
 - Use Rich console output for user-visible status and errors.
-- Keep docstrings brief and practical.
-- Use broad `except Exception` blocks in the CLI layer to convert failures into user-facing messages and `typer.Exit(code=1)`.
 - Keep GitHub-specific concerns inside `envault_gist/gist.py` rather than mixing them into the crypto module.
+- **Overrides parent ("handle errors explicitly / catch narrowly"):** the CLI layer intentionally uses broad `except Exception` blocks to convert any failure into a user-facing message and `typer.Exit(code=1)`. Lower layers (`crypto.py`, `gist.py`) should still catch narrowly.
+
+How parent rules are enforced/instantiated in this repo:
+
+- The parent "no inline imports" rule is machine-enforced by Ruff `PLC0415` (`import-outside-top-level`) and fails CI lint.
+- The parent SDLC "verify" step here means running `uv run pytest`, `uv run ruff check .`, and `uv run ruff format --check .`.
 
 What is not currently enforced in-repo:
 

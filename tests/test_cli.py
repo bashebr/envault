@@ -4,7 +4,7 @@ from unittest.mock import patch
 
 from typer.testing import CliRunner
 
-from envault_gist import config
+from envault_gist import config, crypto
 from envault_gist.cli import app
 
 runner = CliRunner()
@@ -108,8 +108,6 @@ def test_pull_requires_gist_id():
 @patch("envault_gist.gist.get_gist_content")
 def test_pull_command(mock_get_content):
     # Mock return from Gist
-    from envault_gist import crypto
-
     payload = crypto.encrypt(b"FOO=BAR", "mypassword")
     mock_get_content.return_value = json.dumps(payload)
 
@@ -125,8 +123,6 @@ def test_pull_command(mock_get_content):
 
 @patch("envault_gist.gist.get_gist_content")
 def test_diff_command(mock_get_content):
-    from envault_gist import crypto
-
     payload = crypto.encrypt(b"FOO=REMOTE_VAL\nBAR=BAZ", "mypassword")
     mock_get_content.return_value = json.dumps(payload)
 

@@ -8,7 +8,6 @@ license = { text = "MIT" }
 authors = [{ name = "Envault Maintainer", email = "maintainer@example.com" }]
 dependencies = [
   "PyGithub>=1.58",
-  "PyNaCl==1.5.0",
   "argon2-cffi>=23.1.0",
   "cryptography>=41.0.0",
   "rich>=13.0.0",
@@ -31,7 +30,7 @@ dev = [
 line-length = 100
 
 [tool.ruff.lint]
-select = ["E", "F", "I", "N", "W"]
+select = ["E", "F", "I", "N", "W", "PLC0415"]
 
 [tool.pytest.ini_options]
 addopts = "-v"
