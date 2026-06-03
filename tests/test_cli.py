@@ -55,6 +55,21 @@ def test_push_uses_saved_gist_id(mock_create_gist, mock_update_gist):
 
 
 @patch("envault_gist.gist.update_gist")
+@patch("envault_gist.gist.create_gist")
+def test_push_rejects_empty_env_file(mock_create_gist, mock_update_gist):
+    with runner.isolated_filesystem():
+        Path(".env").write_text("")
+        config.set_gist_id("saved123")
+
+        result = runner.invoke(app, ["push"], input="mypassword\nmypassword\n")
+
+        assert result.exit_code == 1
+        assert ".env file is empty" in result.stdout
+        mock_update_gist.assert_not_called()
+        mock_create_gist.assert_not_called()
+
+
+@patch("envault_gist.gist.update_gist")
 def test_push_gist_id_flag(mock_update_gist):
     with runner.isolated_filesystem():
         Path(".env").write_text("FOO=BAR")
@@ -119,6 +134,21 @@ def test_pull_command(mock_get_content):
 
         # Verify .env was written
         assert Path(".env").read_text() == "FOO=BAR"
+
+
+@patch("envault_gist.gist.get_gist_content")
+def test_pull_gist_id_flag_does_not_replace_saved_gist_id(mock_get_content):
+    payload = crypto.encrypt(b"FOO=BAR", "mypassword")
+    mock_get_content.return_value = json.dumps(payload)
+
+    with runner.isolated_filesystem():
+        config.set_gist_id("production123")
+
+        result = runner.invoke(app, ["pull", "--gist-id", "staging456"], input="mypassword\n")
+
+        assert result.exit_code == 0
+        assert Path(".env").read_text() == "FOO=BAR"
+        assert config.get_gist_id() == "production123"
 
 
 @patch("envault_gist.gist.get_gist_content")

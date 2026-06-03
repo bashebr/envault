@@ -19,6 +19,9 @@ PASSPHRASE_ENV = "ENVAULT_PASSPHRASE"
 
 def validate_env_file(path: Path):
     """Basic validation to ensure file looks like an env file."""
+    if path.stat().st_size == 0:
+        console.print("[red]Error: .env file is empty; refusing to push.[/red]")
+        raise typer.Exit(code=1)
     if path.stat().st_size > 1024 * 1024:  # 1MB limit
         console.print("[red]Error: .env file is too large (>1MB).[/red]")
         raise typer.Exit(code=1)
@@ -165,7 +168,8 @@ def pull(
         tmp_path.write_bytes(decrypted_data)
         tmp_path.replace(env_path)
 
-        config.set_gist_id(resolved_id)
+        if gist_id is None or config.get_gist_id() is None:
+            config.set_gist_id(resolved_id)
         console.print("[green]Success! .env file restored.[/green]")
     except Exception as e:
         console.print(f"[red]Error:[/red] {e}")
