@@ -55,6 +55,37 @@ def test_push_uses_saved_gist_id(mock_create_gist, mock_update_gist):
 
 
 @patch("envault_gist.gist.update_gist")
+@patch("envault_gist.gist.create_gist")
+def test_push_refuses_empty_env_when_updating_saved_gist(mock_create_gist, mock_update_gist):
+    with runner.isolated_filesystem():
+        Path(".env").write_text("")
+        config.set_gist_id("saved123")
+
+        result = runner.invoke(app, ["push"], input="mypassword\nmypassword\n")
+
+        assert result.exit_code == 1
+        assert "empty .env" in result.stdout
+        mock_update_gist.assert_not_called()
+        mock_create_gist.assert_not_called()
+
+
+@patch("envault_gist.gist.update_gist")
+@patch("envault_gist.gist.create_gist")
+def test_push_refuses_empty_env_when_updating_flagged_gist(mock_create_gist, mock_update_gist):
+    with runner.isolated_filesystem():
+        Path(".env").write_text("")
+
+        result = runner.invoke(
+            app, ["push", "--gist-id", "flag456"], input="mypassword\nmypassword\n"
+        )
+
+        assert result.exit_code == 1
+        assert "empty .env" in result.stdout
+        mock_update_gist.assert_not_called()
+        mock_create_gist.assert_not_called()
+
+
+@patch("envault_gist.gist.update_gist")
 def test_push_gist_id_flag(mock_update_gist):
     with runner.isolated_filesystem():
         Path(".env").write_text("FOO=BAR")
@@ -138,6 +169,28 @@ def test_diff_command(mock_get_content):
         assert "- FOO=***" in result.stdout  # Remote different
         # BAR shouldn't appear because it's same
         assert "BAR" not in result.stdout
+
+
+@patch("envault_gist.gist.get_gist_content")
+def test_diff_redacts_non_env_lines(mock_get_content):
+    payload = crypto.encrypt(
+        b"FOO=REMOTE_VAL\nREMOTE_SECRET_LINE\npostgres://user:pass@host/db?sslmode=require",
+        "mypassword",
+    )
+    mock_get_content.return_value = json.dumps(payload)
+
+    with runner.isolated_filesystem():
+        Path(".env").write_text("FOO=LOCAL_VAL\nLOCAL_SECRET_LINE\nredis://:pass@host/0?ssl=true")
+
+        result = runner.invoke(app, ["diff", "--gist-id", "12345"], input="mypassword\n")
+
+        assert result.exit_code == 0
+        assert "Differences Found" in result.stdout
+        assert "non-env line=***" in result.stdout
+        assert "REMOTE_SECRET_LINE" not in result.stdout
+        assert "LOCAL_SECRET_LINE" not in result.stdout
+        assert "postgres" not in result.stdout
+        assert "redis" not in result.stdout
 
 
 def test_init_command():
