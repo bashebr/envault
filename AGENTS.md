@@ -117,7 +117,7 @@ The implementation makes a best-effort attempt to reduce secret lifetime with `d
 - Authentication order: `GITHUB_TOKEN` environment variable first, then project-local `.envault_token`.
 - Gist filename is always `envault.json` (legacy name kept for backward compatibility).
 - Gist description is `envault-gist secrets`.
-- `create_gist()`, `update_gist()`, and `get_gist_content()` all use Tenacity retry decorators with exponential backoff.
+- `update_gist()` and `get_gist_content()` use Tenacity retry decorators with exponential backoff. `create_gist()` is intentionally not retried because creating a Gist is not idempotent.
 
 Token loading (`_load_github_token`/`_parse_github_token_value`) accepts a raw PAT or a `KEY=VALUE` line. Retries use a custom `retry_if_exception` predicate so only transient errors (5xx, 429, connection/timeout) are retried; `create_gist` and `update_gist` raise `RuntimeError` with a friendly message (via `_format_github_error`) on `GithubException`. `get_github_client` and `get_gist_content` still `sys.exit(1)` on missing auth / missing file.
 

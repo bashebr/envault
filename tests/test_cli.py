@@ -122,6 +122,20 @@ def test_pull_command(mock_get_content):
 
 
 @patch("envault_gist.gist.get_gist_content")
+def test_pull_removes_temp_file_when_restore_fails(mock_get_content, tmp_path, monkeypatch):
+    payload = crypto.encrypt(b"SECRET=value", "mypassword")
+    mock_get_content.return_value = json.dumps(payload)
+
+    monkeypatch.chdir(tmp_path)
+    Path(".env").mkdir()
+
+    result = runner.invoke(app, ["pull", "--gist-id", "12345"], input="mypassword\n")
+
+    assert result.exit_code == 1
+    assert not Path(".env.tmp").exists()
+
+
+@patch("envault_gist.gist.get_gist_content")
 def test_diff_command(mock_get_content):
     payload = crypto.encrypt(b"FOO=REMOTE_VAL\nBAR=BAZ", "mypassword")
     mock_get_content.return_value = json.dumps(payload)

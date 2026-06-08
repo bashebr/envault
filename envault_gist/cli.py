@@ -162,8 +162,18 @@ def pull(
         env_path = Path(".env")
         tmp_path = env_path.with_suffix(".tmp")
 
-        tmp_path.write_bytes(decrypted_data)
-        tmp_path.replace(env_path)
+        try:
+            tmp_path.write_bytes(decrypted_data)
+            tmp_path.replace(env_path)
+        except Exception:
+            try:
+                tmp_path.unlink(missing_ok=True)
+            except OSError as cleanup_error:
+                console.print(
+                    f"[yellow]Warning: Could not remove temporary file {tmp_path}: "
+                    f"{cleanup_error}[/yellow]"
+                )
+            raise
 
         config.set_gist_id(resolved_id)
         console.print("[green]Success! .env file restored.[/green]")
