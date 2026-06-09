@@ -56,15 +56,17 @@ def test_push_uses_saved_gist_id(mock_create_gist, mock_update_gist):
 
 @patch("envault_gist.gist.update_gist")
 @patch("envault_gist.gist.create_gist")
-def test_push_rejects_empty_env_file(mock_create_gist, mock_update_gist, tmp_path, monkeypatch):
+def test_push_rejects_empty_env_before_update(
+    mock_create_gist, mock_update_gist, tmp_path, monkeypatch
+):
     monkeypatch.chdir(tmp_path)
-    Path(".env").touch()
+    Path(".env").write_text("")
     config.set_gist_id("saved123")
 
     result = runner.invoke(app, ["push"], input="mypassword\nmypassword\n")
 
     assert result.exit_code == 1
-    assert "empty" in result.stdout
+    assert ".env file is empty" in result.stdout
     mock_update_gist.assert_not_called()
     mock_create_gist.assert_not_called()
 
