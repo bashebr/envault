@@ -1,8 +1,5 @@
 import json
-import os
-from contextlib import contextmanager
 from pathlib import Path
-from tempfile import TemporaryDirectory
 from unittest.mock import patch
 
 from typer.testing import CliRunner
@@ -11,21 +8,6 @@ from envault_gist import config, crypto
 from envault_gist.cli import app
 
 runner = CliRunner()
-
-
-@contextmanager
-def isolated_filesystem():
-    cwd = Path.cwd()
-    with TemporaryDirectory() as tmp_dir:
-        os.chdir(tmp_dir)
-        try:
-            yield tmp_dir
-        finally:
-            os.chdir(cwd)
-
-
-if not hasattr(runner, "isolated_filesystem"):
-    runner.isolated_filesystem = isolated_filesystem
 
 
 @patch("envault_gist.gist.create_gist")
