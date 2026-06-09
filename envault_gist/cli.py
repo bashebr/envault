@@ -20,7 +20,7 @@ PASSPHRASE_ENV = "ENVAULT_PASSPHRASE"
 def validate_env_file(path: Path):
     """Basic validation to ensure file looks like an env file."""
     if path.stat().st_size == 0:
-        console.print("[red]Error: .env file is empty; refusing to push.[/red]")
+        console.print("[red]Error: .env file is empty; refusing to push an empty backup.[/red]")
         raise typer.Exit(code=1)
     if path.stat().st_size > 1024 * 1024:  # 1MB limit
         console.print("[red]Error: .env file is too large (>1MB).[/red]")
@@ -165,8 +165,18 @@ def pull(
         env_path = Path(".env")
         tmp_path = env_path.with_suffix(".tmp")
 
-        tmp_path.write_bytes(decrypted_data)
-        tmp_path.replace(env_path)
+        try:
+            tmp_path.write_bytes(decrypted_data)
+            tmp_path.replace(env_path)
+        except Exception:
+            try:
+                tmp_path.unlink(missing_ok=True)
+            except OSError as cleanup_error:
+                console.print(
+                    f"[yellow]Warning: Could not remove temporary file {tmp_path}: "
+                    f"{cleanup_error}[/yellow]"
+                )
+            raise
 
         config.set_gist_id(resolved_id)
         console.print("[green]Success! .env file restored.[/green]")

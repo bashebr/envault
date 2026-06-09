@@ -80,12 +80,6 @@ def _format_github_error(exc: GithubException, action: str) -> str:
     return f"GitHub error when trying to {action}: {exc}"
 
 
-@retry(
-    stop=stop_after_attempt(3),
-    wait=wait_exponential(multiplier=1, min=2, max=10),
-    retry=retry_if_exception(_is_retryable_github_error),
-    reraise=True,
-)
 def create_gist(content: str) -> str:
     """Create a new secret Gist and return its ID."""
     gh = get_github_client()
