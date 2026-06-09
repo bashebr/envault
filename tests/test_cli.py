@@ -1,5 +1,8 @@
 import json
+import os
+from contextlib import contextmanager
 from pathlib import Path
+from tempfile import TemporaryDirectory
 from unittest.mock import patch
 
 from typer.testing import CliRunner
@@ -8,6 +11,21 @@ from envault_gist import config, crypto
 from envault_gist.cli import app
 
 runner = CliRunner()
+
+
+@contextmanager
+def isolated_filesystem():
+    cwd = Path.cwd()
+    with TemporaryDirectory() as tmp_dir:
+        os.chdir(tmp_dir)
+        try:
+            yield tmp_dir
+        finally:
+            os.chdir(cwd)
+
+
+if not hasattr(runner, "isolated_filesystem"):
+    runner.isolated_filesystem = isolated_filesystem
 
 
 @patch("envault_gist.gist.create_gist")
@@ -52,6 +70,23 @@ def test_push_uses_saved_gist_id(mock_create_gist, mock_update_gist):
         assert "saved123" in result.stdout
         mock_update_gist.assert_called_once()
         mock_create_gist.assert_not_called()
+
+
+@patch("envault_gist.gist.update_gist")
+@patch("envault_gist.gist.create_gist")
+def test_push_rejects_empty_env_before_update(
+    mock_create_gist, mock_update_gist, tmp_path, monkeypatch
+):
+    monkeypatch.chdir(tmp_path)
+    Path(".env").write_text("")
+    config.set_gist_id("saved123")
+
+    result = runner.invoke(app, ["push"], input="mypassword\nmypassword\n")
+
+    assert result.exit_code == 1
+    assert ".env file is empty" in result.stdout
+    mock_update_gist.assert_not_called()
+    mock_create_gist.assert_not_called()
 
 
 @patch("envault_gist.gist.update_gist")

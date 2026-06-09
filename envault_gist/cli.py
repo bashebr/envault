@@ -19,6 +19,9 @@ PASSPHRASE_ENV = "ENVAULT_PASSPHRASE"
 
 def validate_env_file(path: Path):
     """Basic validation to ensure file looks like an env file."""
+    if path.stat().st_size == 0:
+        console.print("[red]Error: .env file is empty; refusing to push an empty backup.[/red]")
+        raise typer.Exit(code=1)
     if path.stat().st_size > 1024 * 1024:  # 1MB limit
         console.print("[red]Error: .env file is too large (>1MB).[/red]")
         raise typer.Exit(code=1)
