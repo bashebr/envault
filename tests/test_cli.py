@@ -171,6 +171,30 @@ def test_diff_command(mock_get_content):
         assert "BAR" not in result.stdout
 
 
+@patch("envault_gist.gist.get_gist_content")
+def test_diff_redacts_non_env_lines(mock_get_content):
+    payload = crypto.encrypt(
+        b"FOO=REMOTE_VAL\nREMOTE_PRIVATE_KEY_LINE\nhttps://user:remote-pass@example.test",
+        "mypassword",
+    )
+    mock_get_content.return_value = json.dumps(payload)
+
+    with runner.isolated_filesystem():
+        Path(".env").write_text(
+            "FOO=LOCAL_VAL\nLOCAL_PRIVATE_KEY_LINE\nhttps://user:local-pass@example.test"
+        )
+
+        result = runner.invoke(app, ["diff", "--gist-id", "12345"], input="mypassword\n")
+
+        assert result.exit_code == 0
+        assert "Differences Found" in result.stdout
+        assert "non-env line=***" in result.stdout
+        assert "REMOTE_PRIVATE_KEY_LINE" not in result.stdout
+        assert "LOCAL_PRIVATE_KEY_LINE" not in result.stdout
+        assert "remote-pass" not in result.stdout
+        assert "local-pass" not in result.stdout
+
+
 def test_init_command():
     with runner.isolated_filesystem():
         result = runner.invoke(app, ["init"], input="my_token\n")

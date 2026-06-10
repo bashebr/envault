@@ -1,10 +1,12 @@
 import json
 import os
+import re
 from pathlib import Path
 from typing import Optional
 
 import typer
 from rich.console import Console
+from rich.markup import escape
 
 from envault_gist import config, crypto, gist
 
@@ -15,6 +17,7 @@ app = typer.Typer(
 console = Console()
 
 PASSPHRASE_ENV = "ENVAULT_PASSPHRASE"
+ENV_KEY_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
 
 
 def validate_env_file(path: Path):
@@ -31,6 +34,15 @@ def validate_env_file(path: Path):
     except UnicodeDecodeError:
         console.print("[red]Error: .env file is not valid UTF-8 text.[/red]")
         raise typer.Exit(code=1)
+
+
+def _redacted_env_key(line: str) -> str:
+    """Return a safe display label for a changed env line."""
+    key, separator, _ = line.partition("=")
+    key = key.strip()
+    if not separator or not ENV_KEY_RE.fullmatch(key):
+        return "non-env line"
+    return escape(key)
 
 
 def _get_passphrase(prompt_text: str, confirm: bool = False) -> str:
@@ -262,10 +274,10 @@ def diff(
         else:
             console.print("[bold]Differences Found:[/bold]")
             for line in only_in_remote:
-                key = line.split("=")[0]
+                key = _redacted_env_key(line)
                 console.print(f"[red]- {key}=***[/red] (In Remote only)")
             for line in only_in_local:
-                key = line.split("=")[0]
+                key = _redacted_env_key(line)
                 console.print(f"[green]+ {key}=***[/green] (In Local only)")
 
     except Exception as e:
