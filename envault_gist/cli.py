@@ -64,6 +64,13 @@ def _resolve_gist_id(gist_id: Optional[str]) -> str:
     return resolved
 
 
+def _redacted_diff_key(line: str) -> str:
+    key, separator, _ = line.partition("=")
+    if not separator:
+        return "<non-env-line>"
+    return key
+
+
 @app.command()
 def init():
     """Initialize envault-gist configuration."""
@@ -262,10 +269,10 @@ def diff(
         else:
             console.print("[bold]Differences Found:[/bold]")
             for line in only_in_remote:
-                key = line.split("=")[0]
+                key = _redacted_diff_key(line)
                 console.print(f"[red]- {key}=***[/red] (In Remote only)")
             for line in only_in_local:
-                key = line.split("=")[0]
+                key = _redacted_diff_key(line)
                 console.print(f"[green]+ {key}=***[/green] (In Local only)")
 
     except Exception as e:
