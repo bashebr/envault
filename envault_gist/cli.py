@@ -1,5 +1,6 @@
 import json
 import os
+import re
 from pathlib import Path
 from typing import Optional
 
@@ -15,6 +16,7 @@ app = typer.Typer(
 console = Console()
 
 PASSPHRASE_ENV = "ENVAULT_PASSPHRASE"
+_ENV_ASSIGNMENT_KEY_RE = re.compile(r"^(?:export\s+)?[A-Za-z_][A-Za-z0-9_]*$")
 
 
 def validate_env_file(path: Path):
@@ -66,7 +68,8 @@ def _resolve_gist_id(gist_id: Optional[str]) -> str:
 
 def _redacted_diff_key(line: str) -> str:
     key, separator, _ = line.partition("=")
-    if not separator:
+    key = key.strip()
+    if not separator or not _ENV_ASSIGNMENT_KEY_RE.fullmatch(key):
         return "<non-env-line>"
     return key
 

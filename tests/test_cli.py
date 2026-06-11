@@ -187,6 +187,22 @@ def test_diff_redacts_non_env_lines(mock_get_content):
         assert "<non-env-line>=***" in result.stdout
 
 
+@patch("envault_gist.gist.get_gist_content")
+def test_diff_redacts_non_env_lines_containing_equals(mock_get_content):
+    secret_fragment = "raw-super-secret-token"
+    payload = crypto.encrypt(f"FOO=REMOTE_VAL\n{secret_fragment}==".encode(), "mypassword")
+    mock_get_content.return_value = json.dumps(payload)
+
+    with runner.isolated_filesystem():
+        Path(".env").write_text("FOO=REMOTE_VAL")
+
+        result = runner.invoke(app, ["diff", "--gist-id", "12345"], input="mypassword\n")
+
+        assert result.exit_code == 0
+        assert secret_fragment not in result.stdout
+        assert "<non-env-line>=***" in result.stdout
+
+
 def test_init_command():
     with runner.isolated_filesystem():
         result = runner.invoke(app, ["init"], input="my_token\n")
