@@ -1,5 +1,6 @@
 import json
 import os
+import re
 from pathlib import Path
 from typing import Optional
 
@@ -15,6 +16,7 @@ app = typer.Typer(
 console = Console()
 
 PASSPHRASE_ENV = "ENVAULT_PASSPHRASE"
+_ENV_ASSIGNMENT_KEY_RE = re.compile(r"^(?:export\s+)?[A-Za-z_][A-Za-z0-9_]*$")
 
 
 def validate_env_file(path: Path):
@@ -62,6 +64,14 @@ def _resolve_gist_id(gist_id: Optional[str]) -> str:
         )
         raise typer.Exit(code=1)
     return resolved
+
+
+def _redacted_diff_key(line: str) -> str:
+    key, separator, _ = line.partition("=")
+    key = key.strip()
+    if not separator or not _ENV_ASSIGNMENT_KEY_RE.fullmatch(key):
+        return "<non-env-line>"
+    return key
 
 
 @app.command()
@@ -262,10 +272,10 @@ def diff(
         else:
             console.print("[bold]Differences Found:[/bold]")
             for line in only_in_remote:
-                key = line.split("=")[0]
+                key = _redacted_diff_key(line)
                 console.print(f"[red]- {key}=***[/red] (In Remote only)")
             for line in only_in_local:
-                key = line.split("=")[0]
+                key = _redacted_diff_key(line)
                 console.print(f"[green]+ {key}=***[/green] (In Local only)")
 
     except Exception as e:
