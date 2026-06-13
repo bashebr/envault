@@ -188,7 +188,8 @@ def pull(
                 )
             raise
 
-        config.set_gist_id(resolved_id)
+        if gist_id is None or config.get_gist_id() is None:
+            config.set_gist_id(resolved_id)
         console.print("[green]Success! .env file restored.[/green]")
     except Exception as e:
         console.print(f"[red]Error:[/red] {e}")
