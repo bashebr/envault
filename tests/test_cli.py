@@ -56,17 +56,19 @@ def test_push_uses_saved_gist_id(mock_create_gist, mock_update_gist):
 
 @patch("envault_gist.gist.update_gist")
 @patch("envault_gist.gist.create_gist")
-def test_push_rejects_empty_env_file(mock_create_gist, mock_update_gist):
-    with runner.isolated_filesystem():
-        Path(".env").write_text("")
-        config.set_gist_id("saved123")
+def test_push_rejects_empty_env_before_update(
+    mock_create_gist, mock_update_gist, tmp_path, monkeypatch
+):
+    monkeypatch.chdir(tmp_path)
+    Path(".env").write_text("")
+    config.set_gist_id("saved123")
 
-        result = runner.invoke(app, ["push"], input="mypassword\nmypassword\n")
+    result = runner.invoke(app, ["push"], input="mypassword\nmypassword\n")
 
-        assert result.exit_code == 1
-        assert ".env file is empty" in result.stdout
-        mock_update_gist.assert_not_called()
-        mock_create_gist.assert_not_called()
+    assert result.exit_code == 1
+    assert ".env file is empty" in result.stdout
+    mock_update_gist.assert_not_called()
+    mock_create_gist.assert_not_called()
 
 
 @patch("envault_gist.gist.update_gist")
@@ -137,6 +139,20 @@ def test_pull_command(mock_get_content):
 
 
 @patch("envault_gist.gist.get_gist_content")
+def test_pull_removes_temp_file_when_restore_fails(mock_get_content, tmp_path, monkeypatch):
+    payload = crypto.encrypt(b"SECRET=value", "mypassword")
+    mock_get_content.return_value = json.dumps(payload)
+
+    monkeypatch.chdir(tmp_path)
+    Path(".env").mkdir()
+
+    result = runner.invoke(app, ["pull", "--gist-id", "12345"], input="mypassword\n")
+
+    assert result.exit_code == 1
+    assert not Path(".env.tmp").exists()
+
+
+@patch("envault_gist.gist.get_gist_content")
 def test_diff_command(mock_get_content):
     payload = crypto.encrypt(b"FOO=REMOTE_VAL\nBAR=BAZ", "mypassword")
     mock_get_content.return_value = json.dumps(payload)
@@ -153,6 +169,38 @@ def test_diff_command(mock_get_content):
         assert "- FOO=***" in result.stdout  # Remote different
         # BAR shouldn't appear because it's same
         assert "BAR" not in result.stdout
+
+
+@patch("envault_gist.gist.get_gist_content")
+def test_diff_redacts_non_env_lines(mock_get_content):
+    secret_line = "raw-super-secret-token"
+    payload = crypto.encrypt(f"FOO=REMOTE_VAL\n{secret_line}".encode(), "mypassword")
+    mock_get_content.return_value = json.dumps(payload)
+
+    with runner.isolated_filesystem():
+        Path(".env").write_text("FOO=REMOTE_VAL")
+
+        result = runner.invoke(app, ["diff", "--gist-id", "12345"], input="mypassword\n")
+
+        assert result.exit_code == 0
+        assert secret_line not in result.stdout
+        assert "<non-env-line>=***" in result.stdout
+
+
+@patch("envault_gist.gist.get_gist_content")
+def test_diff_redacts_non_env_lines_containing_equals(mock_get_content):
+    secret_fragment = "raw-super-secret-token"
+    payload = crypto.encrypt(f"FOO=REMOTE_VAL\n{secret_fragment}==".encode(), "mypassword")
+    mock_get_content.return_value = json.dumps(payload)
+
+    with runner.isolated_filesystem():
+        Path(".env").write_text("FOO=REMOTE_VAL")
+
+        result = runner.invoke(app, ["diff", "--gist-id", "12345"], input="mypassword\n")
+
+        assert result.exit_code == 0
+        assert secret_fragment not in result.stdout
+        assert "<non-env-line>=***" in result.stdout
 
 
 def test_init_command():
