@@ -1,5 +1,6 @@
 import json
 import os
+import re
 from pathlib import Path
 from typing import Optional
 
@@ -15,12 +16,13 @@ app = typer.Typer(
 console = Console()
 
 PASSPHRASE_ENV = "ENVAULT_PASSPHRASE"
+_ENV_ASSIGNMENT_KEY_RE = re.compile(r"^(?:export\s+)?[A-Za-z_][A-Za-z0-9_]*$")
 
 
 def validate_env_file(path: Path):
     """Basic validation to ensure file looks like an env file."""
     if path.stat().st_size == 0:
-        console.print("[red]Error: .env file is empty; refusing to push.[/red]")
+        console.print("[red]Error: .env file is empty; refusing to push an empty backup.[/red]")
         raise typer.Exit(code=1)
     if path.stat().st_size > 1024 * 1024:  # 1MB limit
         console.print("[red]Error: .env file is too large (>1MB).[/red]")
@@ -62,6 +64,14 @@ def _resolve_gist_id(gist_id: Optional[str]) -> str:
         )
         raise typer.Exit(code=1)
     return resolved
+
+
+def _redacted_diff_key(line: str) -> str:
+    key, separator, _ = line.partition("=")
+    key = key.strip()
+    if not separator or not _ENV_ASSIGNMENT_KEY_RE.fullmatch(key):
+        return "<non-env-line>"
+    return key
 
 
 @app.command()
@@ -165,8 +175,18 @@ def pull(
         env_path = Path(".env")
         tmp_path = env_path.with_suffix(".tmp")
 
-        tmp_path.write_bytes(decrypted_data)
-        tmp_path.replace(env_path)
+        try:
+            tmp_path.write_bytes(decrypted_data)
+            tmp_path.replace(env_path)
+        except Exception:
+            try:
+                tmp_path.unlink(missing_ok=True)
+            except OSError as cleanup_error:
+                console.print(
+                    f"[yellow]Warning: Could not remove temporary file {tmp_path}: "
+                    f"{cleanup_error}[/yellow]"
+                )
+            raise
 
         if gist_id is None or config.get_gist_id() is None:
             config.set_gist_id(resolved_id)
@@ -253,10 +273,10 @@ def diff(
         else:
             console.print("[bold]Differences Found:[/bold]")
             for line in only_in_remote:
-                key = line.split("=")[0]
+                key = _redacted_diff_key(line)
                 console.print(f"[red]- {key}=***[/red] (In Remote only)")
             for line in only_in_local:
-                key = line.split("=")[0]
+                key = _redacted_diff_key(line)
                 console.print(f"[green]+ {key}=***[/green] (In Local only)")
 
     except Exception as e:
