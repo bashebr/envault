@@ -179,6 +179,8 @@ envault-gist pull --gist-id abc123
 - **Zero knowledge:** Passphrases and keys are never stored; GitHub only sees the encrypted payload.
 - **Redacted diffs:** `diff` reveals changed key names only, never values.
 - **Atomic restores:** `pull` writes to a temp file and renames, so a crash can't corrupt `.env`.
+- **Local file permissions:** tokens saved by `init` and `.env` files restored by `pull` are
+  restricted to the current user where the operating system supports POSIX permissions.
 - **Transport security:** All GitHub communication is over HTTPS.
 
 ## Development

@@ -7,7 +7,9 @@ file is safe to commit if a team wants `pull` to work with just a passphrase.
 """
 
 import json
+import os
 from pathlib import Path
+from tempfile import NamedTemporaryFile
 from typing import Optional
 
 CONFIG_FILENAME = ".envault.json"
@@ -37,4 +39,16 @@ def get_gist_id() -> Optional[str]:
 def set_gist_id(gist_id: str) -> None:
     config = load_config()
     config["gist_id"] = gist_id
-    _config_path().write_text(json.dumps(config, indent=2) + "\n")
+    path = _config_path()
+    with NamedTemporaryFile(
+        "w", encoding="utf-8", dir=path.parent, prefix=f".{path.name}.", delete=False
+    ) as temporary_file:
+        temporary_file.write(json.dumps(config, indent=2) + "\n")
+        temporary_file.flush()
+        os.fsync(temporary_file.fileno())
+        temporary_path = Path(temporary_file.name)
+    try:
+        temporary_path.replace(path)
+    except OSError:
+        temporary_path.unlink(missing_ok=True)
+        raise

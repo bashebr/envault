@@ -26,3 +26,17 @@ def test_decrypt_invalid_passphrase():
     # Argon2 verification fails
     with pytest.raises(Exception):
         crypto.decrypt(payload, "wrong_passphrase")
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        {},
+        {"kdf": "pbkdf2", "salt": "a" * 24, "ciphertext": "invalid"},
+        {"kdf": "argon2id", "salt": "not base64!", "ciphertext": "invalid"},
+        {"kdf": "argon2id", "salt": "YQ==", "ciphertext": "invalid"},
+    ],
+)
+def test_decrypt_rejects_malformed_payload(payload):
+    with pytest.raises(ValueError):
+        crypto.decrypt(payload, "passphrase")

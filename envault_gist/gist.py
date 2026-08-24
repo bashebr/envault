@@ -1,7 +1,8 @@
+"""GitHub Gist storage operations."""
+
 import os
-import sys
 from pathlib import Path
-from typing import Optional
+from typing import Callable, Optional, TypeVar
 
 from github import Auth, Github, InputFileContent
 from github.GithubException import GithubException
@@ -9,6 +10,7 @@ from tenacity import retry, retry_if_exception, stop_after_attempt, wait_exponen
 
 GIST_FILENAME = "envault.json"
 GIST_DESCRIPTION = "envault-gist secrets"
+_T = TypeVar("_T")
 
 
 def gist_url(gist_id: str) -> str:
@@ -32,31 +34,22 @@ def _load_github_token() -> Optional[str]:
 
     token_path = Path(".envault_token")
     if token_path.exists():
-        raw = token_path.read_text()
+        raw = token_path.read_text(encoding="utf-8")
         if raw.strip():
             return _parse_github_token_value(raw)
-
     return None
 
 
 def get_github_client() -> Github:
     token = _load_github_token()
-
     if not token:
-        print(
-            "Error: GITHUB_TOKEN not set and .envault_token file not found.",
-            file=sys.stderr,
-        )
-        sys.exit(1)
-    auth = Auth.Token(token)
-    return Github(auth=auth)
+        raise RuntimeError("GITHUB_TOKEN is not set and .envault_token was not found.")
+    return Github(auth=Auth.Token(token))
 
 
 def _is_retryable_github_error(exc: BaseException) -> bool:
     if isinstance(exc, GithubException):
-        if exc.status is None:
-            return True
-        return exc.status >= 500 or exc.status == 429
+        return exc.status is None or exc.status >= 500 or exc.status == 429
     return isinstance(exc, (ConnectionError, TimeoutError))
 
 
@@ -64,36 +57,38 @@ def _format_github_error(exc: GithubException, action: str) -> str:
     if exc.status == 403:
         return (
             f"GitHub returned 403 Forbidden when trying to {action}. "
-            "Your token likely lacks Gist permission. "
-            "Classic PAT: enable the 'gist' scope. "
-            "Fine-grained PAT: grant Gists read/write under Account permissions. "
-            "Then update GITHUB_TOKEN or .envault_token. "
+            "Your token likely lacks Gist permission. Classic PATs need the 'gist' scope; "
+            "fine-grained PATs need Gists read/write Account permission. "
             "https://github.com/settings/tokens"
         )
     if exc.status == 401:
-        return (
-            f"GitHub authentication failed (401) when trying to {action}. "
-            "Check that your token is valid and not expired. "
-            ".envault_token should contain the raw PAT (ghp_... or github_pat_...), "
-            "not a GITHUB_TOKEN= line unless exported as an environment variable."
-        )
+        return f"GitHub authentication failed (401) when trying to {action}. Check your token."
     return f"GitHub error when trying to {action}: {exc}"
 
 
-def create_gist(content: str) -> str:
-    """Create a new secret Gist and return its ID."""
-    gh = get_github_client()
-    user = gh.get_user()
-
+def _with_github_error(action: str, operation: Callable[[], _T]) -> _T:
     try:
-        gist = user.create_gist(
-            public=False,
-            files={GIST_FILENAME: InputFileContent(content)},
-            description=GIST_DESCRIPTION,
+        return operation()
+    except GithubException as exc:
+        raise RuntimeError(_format_github_error(exc, action)) from exc
+
+
+def create_gist(content: str) -> str:
+    """Create a new secret Gist and return its ID; creation is never retried."""
+
+    def operation() -> str:
+        gist = (
+            get_github_client()
+            .get_user()
+            .create_gist(
+                public=False,
+                files={GIST_FILENAME: InputFileContent(content)},
+                description=GIST_DESCRIPTION,
+            )
         )
         return gist.id
-    except GithubException as exc:
-        raise RuntimeError(_format_github_error(exc, "create a Gist")) from exc
+
+    return _with_github_error("create a Gist", operation)
 
 
 @retry(
@@ -102,17 +97,14 @@ def create_gist(content: str) -> str:
     retry=retry_if_exception(_is_retryable_github_error),
     reraise=True,
 )
+def _update_gist_with_retry(gist_id: str, content: str) -> None:
+    gist = get_github_client().get_gist(gist_id)
+    gist.edit(description=GIST_DESCRIPTION, files={GIST_FILENAME: InputFileContent(content)})
+
+
 def update_gist(gist_id: str, content: str) -> None:
-    """Update an existing Gist with new content."""
-    gh = get_github_client()
-    try:
-        gist = gh.get_gist(gist_id)
-        gist.edit(
-            description=GIST_DESCRIPTION,
-            files={GIST_FILENAME: InputFileContent(content)},
-        )
-    except GithubException as exc:
-        raise RuntimeError(_format_github_error(exc, f"update Gist {gist_id}")) from exc
+    """Update an existing Gist, retrying only transient failures."""
+    _with_github_error(f"update Gist {gist_id}", lambda: _update_gist_with_retry(gist_id, content))
 
 
 @retry(
@@ -121,16 +113,19 @@ def update_gist(gist_id: str, content: str) -> None:
     retry=retry_if_exception(_is_retryable_github_error),
     reraise=True,
 )
-def get_gist_content(gist_id: str) -> str:
-    """Fetch content from a Gist."""
-    gh = get_github_client()
-    try:
-        gist = gh.get_gist(gist_id)
-        if GIST_FILENAME not in gist.files:
-            print(f"Error: Gist {gist_id} does not contain {GIST_FILENAME}", file=sys.stderr)
-            sys.exit(1)
+def _get_gist_content_with_retry(gist_id: str) -> str:
+    gist = get_github_client().get_gist(gist_id)
+    file = gist.files.get(GIST_FILENAME)
+    if file is None:
+        raise RuntimeError(f"Gist {gist_id} does not contain {GIST_FILENAME}.")
+    content = file.content
+    if not isinstance(content, str):
+        raise RuntimeError(f"Gist {gist_id} contains unreadable {GIST_FILENAME} content.")
+    return content
 
-        return gist.files[GIST_FILENAME].content
-    except GithubException as exc:
-        print(_format_github_error(exc, f"fetch Gist {gist_id}"), file=sys.stderr)
-        sys.exit(1)
+
+def get_gist_content(gist_id: str) -> str:
+    """Fetch Gist content, retrying only transient failures."""
+    return _with_github_error(
+        f"fetch Gist {gist_id}", lambda: _get_gist_content_with_retry(gist_id)
+    )

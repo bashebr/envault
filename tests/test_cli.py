@@ -1,4 +1,5 @@
 import json
+import stat
 from pathlib import Path
 from unittest.mock import patch
 
@@ -136,6 +137,7 @@ def test_pull_command(mock_get_content):
 
         # Verify .env was written
         assert Path(".env").read_text() == "FOO=BAR"
+        assert stat.S_IMODE(Path(".env").stat().st_mode) == 0o600
 
 
 @patch("envault_gist.gist.get_gist_content")
@@ -169,6 +171,23 @@ def test_diff_command(mock_get_content):
         assert "- FOO=***" in result.stdout  # Remote different
         # BAR shouldn't appear because it's same
         assert "BAR" not in result.stdout
+
+
+@patch("envault_gist.gist.update_gist")
+@patch("envault_gist.gist.get_gist_content")
+def test_rotate_reencrypts_remote_payload(mock_get_content, mock_update_gist):
+    mock_get_content.return_value = json.dumps(crypto.encrypt(b"FOO=BAR", "old-passphrase"))
+
+    with runner.isolated_filesystem():
+        result = runner.invoke(
+            app,
+            ["rotate", "--gist-id", "12345"],
+            input="old-passphrase\nnew-passphrase\nnew-passphrase\n",
+        )
+
+        assert result.exit_code == 0
+        encrypted_content = mock_update_gist.call_args.args[1]
+        assert crypto.decrypt(json.loads(encrypted_content), "new-passphrase") == b"FOO=BAR"
 
 
 @patch("envault_gist.gist.get_gist_content")
@@ -211,3 +230,4 @@ def test_init_command():
             ".envault_token found locally" in result.stdout
             or "Saved to .envault_token" in result.stdout
         )
+        assert stat.S_IMODE(Path(".envault_token").stat().st_mode) == 0o600

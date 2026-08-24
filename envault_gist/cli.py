@@ -2,6 +2,7 @@ import json
 import os
 import re
 from pathlib import Path
+from tempfile import NamedTemporaryFile
 from typing import Optional
 
 import typer
@@ -74,6 +75,25 @@ def _redacted_diff_key(line: str) -> str:
     return key
 
 
+def _restore_env_file(data: bytes) -> None:
+    """Atomically restore .env without exposing plaintext in a predictable path."""
+    env_path = Path(".env")
+    with NamedTemporaryFile(
+        "wb", dir=env_path.parent, prefix=".envault-", suffix=".tmp", delete=False
+    ) as temporary_file:
+        temporary_file.write(data)
+        temporary_file.flush()
+        os.fsync(temporary_file.fileno())
+        temporary_path = Path(temporary_file.name)
+
+    try:
+        os.chmod(temporary_path, 0o600)
+        temporary_path.replace(env_path)
+    except OSError:
+        temporary_path.unlink(missing_ok=True)
+        raise
+
+
 @app.command()
 def init():
     """Initialize envault-gist configuration."""
@@ -90,7 +110,9 @@ def init():
             console.print("[yellow]GITHUB_TOKEN not found.[/yellow]")
             token_input = typer.prompt("Enter your GitHub PAT (with gist scope)", hide_input=True)
             if token_input:
-                Path(".envault_token").write_text(token_input.strip())
+                token_path = Path(".envault_token")
+                token_path.write_text(token_input.strip(), encoding="utf-8")
+                os.chmod(token_path, 0o600)
                 console.print("[green]Saved to .envault_token (add this to .gitignore!)[/green]")
 
     # Check .env
@@ -171,22 +193,7 @@ def pull(
 
         decrypted_data = crypto.decrypt(payload, passphrase)
 
-        # Atomic Write
-        env_path = Path(".env")
-        tmp_path = env_path.with_suffix(".tmp")
-
-        try:
-            tmp_path.write_bytes(decrypted_data)
-            tmp_path.replace(env_path)
-        except Exception:
-            try:
-                tmp_path.unlink(missing_ok=True)
-            except OSError as cleanup_error:
-                console.print(
-                    f"[yellow]Warning: Could not remove temporary file {tmp_path}: "
-                    f"{cleanup_error}[/yellow]"
-                )
-            raise
+        _restore_env_file(decrypted_data)
 
         if gist_id is None or config.get_gist_id() is None:
             config.set_gist_id(resolved_id)
@@ -272,10 +279,10 @@ def diff(
             console.print("[green]No differences found.[/green]")
         else:
             console.print("[bold]Differences Found:[/bold]")
-            for line in only_in_remote:
+            for line in sorted(only_in_remote):
                 key = _redacted_diff_key(line)
                 console.print(f"[red]- {key}=***[/red] (In Remote only)")
-            for line in only_in_local:
+            for line in sorted(only_in_local):
                 key = _redacted_diff_key(line)
                 console.print(f"[green]+ {key}=***[/green] (In Local only)")
 
