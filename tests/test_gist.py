@@ -3,7 +3,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from envault_gist.gist import _parse_github_token_value, create_gist
+from envault_gist.gist import _parse_github_token_value, create_gist, update_gist
 
 
 def test_parse_github_token_value_raw():
@@ -29,3 +29,14 @@ def test_create_gist_does_not_retry_after_lost_create_response(mock_get_github_c
         create_gist("payload")
 
     user.create_gist.assert_called_once()
+
+
+@patch("envault_gist.gist.get_github_client")
+def test_update_gist_retries_transient_errors(mock_get_github_client):
+    gist = MagicMock()
+    gist.edit.side_effect = [ConnectionError("temporary failure"), None]
+    mock_get_github_client.return_value.get_gist.return_value = gist
+
+    update_gist("abc123", "payload")
+
+    assert gist.edit.call_count == 2

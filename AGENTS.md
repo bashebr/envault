@@ -175,10 +175,9 @@ uv run pytest
 
 Be aware of the current gaps before relying on the suite:
 
-- No test coverage for `rotate`
 - No integration tests against a real GitHub Gist
 - No property-based tests
-- No regression tests around malformed payloads beyond invalid passphrase handling
+- No property-based or fuzz testing around malformed payloads
 
 Note: `.envault.json` is project-local metadata (the saved Gist ID). It is not secret (the Gist is private and requires auth), so it is intentionally not gitignored and may be committed to let teammates `pull` with only a passphrase.
 
